@@ -125,7 +125,7 @@
 <body>
   <div class="wrap">
     <img class="wordmark" src="/static/hybrid-wordmark.svg" alt="Hybrid" />
-    <h1>Выберите слот на завтра</h1>
+    <h1 id="title">Выберите слот</h1>
     <p class="sub">30 минут с 15:00 до 19:00, Москва. Занятое время недоступно.</p>
     <div class="meta">
       <span id="date">—</span>
@@ -156,6 +156,7 @@
       const r = await fetch("/book/slots");
       const d = await r.json();
       document.getElementById("date").textContent = d.date_label;
+      document.getElementById("title").textContent = "Выберите слот на " + d.date_label;
       grid.innerHTML = "";
       d.slots.forEach((s) => {
         const b = document.createElement("button");

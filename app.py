@@ -27,6 +27,9 @@ CALDAV_URL = os.environ.get("YANDEX_CALDAV_URL", "https://caldav.yandex.ru/").rs
 CALDAV_USER = os.environ.get("YANDEX_CALDAV_USER", OWNER_EMAIL)
 CALDAV_PASSWORD = os.environ.get("YANDEX_CALDAV_PASSWORD", "")
 ICAL_URL = os.environ.get("YANDEX_ICAL_URL", "").strip()
+CALDAV_COLLECTION = os.environ.get(
+    "YANDEX_CALDAV_COLLECTION", "events-37973416"
+).strip("/")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "bookings.sqlite"
@@ -153,10 +156,11 @@ def make_ics(uid: str, start: datetime, name: str, email: str) -> bytes:
 def caldav_put(uid: str, ics: bytes) -> tuple[bool, str]:
     if not CALDAV_PASSWORD:
         return False, "no_password"
-    # Common Yandex collection paths
+    from urllib.parse import quote
+    user = quote(CALDAV_USER, safe="")
     paths = [
-        f"{CALDAV_URL}calendars/{CALDAV_USER}/{uid}.ics",
-        f"{CALDAV_URL}calendars/{CALDAV_USER}/events/{uid}.ics",
+        f"{CALDAV_URL}calendars/{user}/{CALDAV_COLLECTION}/{uid}.ics",
+        f"{CALDAV_URL}calendars/{CALDAV_USER}/{CALDAV_COLLECTION}/{uid}.ics",
     ]
     auth = (CALDAV_USER, CALDAV_PASSWORD)
     last = "no_attempt"
@@ -170,7 +174,7 @@ def caldav_put(uid: str, ics: bytes) -> tuple[bool, str]:
                 timeout=20.0,
             )
             last = f"{r.status_code}"
-            if r.status_code in (200, 201, 204):
+            if r.status_code in (200, 201, 204, 409):
                 return True, last
         except Exception as e:
             last = type(e).__name__
