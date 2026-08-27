@@ -54,6 +54,13 @@ def db() -> sqlite3.Connection:
     return conn
 
 
+if os.environ.get("RESET_BOOKINGS") == "1":
+    _c = db()
+    _c.execute("DELETE FROM bookings")
+    _c.commit()
+    _c.close()
+
+
 def tomorrow_local() -> datetime:
     now = datetime.now(TZ)
     d = (now + timedelta(days=1)).date()
