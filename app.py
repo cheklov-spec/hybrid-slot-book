@@ -188,7 +188,7 @@ def health():
     return {"ok": True}
 
 
-@app.get("/api/slots")
+@app.get("/book/slots")
 def api_slots():
     busy = sqlite_busy() | ical_busy()
     items = []
@@ -212,7 +212,7 @@ def api_slots():
     }
 
 
-@app.post("/api/book")
+@app.post("/book")
 def api_book(body: BookIn):
     try:
         start = datetime.fromisoformat(body.slot)

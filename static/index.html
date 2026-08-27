@@ -153,7 +153,7 @@
     const msg = document.getElementById("msg");
 
     async function load() {
-      const r = await fetch("/api/slots");
+      const r = await fetch("/book/slots");
       const d = await r.json();
       document.getElementById("date").textContent = d.date_label;
       grid.innerHTML = "";
@@ -183,7 +183,7 @@
       msg.className = "msg";
       msg.textContent = "";
       try {
-        const r = await fetch("/api/book", {
+        const r = await fetch("/book", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
