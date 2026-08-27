@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Встреча · Hybrid</title>
+  <link rel="preconnect" href="https://fonts.cdnfonts.com" />
+  <link href="https://fonts.cdnfonts.com/css/gilroy" rel="stylesheet" />
+  <style>
+    :root {
+      --purple: #7D2DB1;
+      --windsor: #330A80;
+      --paper: #F7FAFC;
+      --ink: #16182F;
+      --muted: #6B6D92;
+      --line: #E4E8F9;
+      --green: #1ACC76;
+      --blue: #2138ED;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: Gilroy, "Manrope", system-ui, sans-serif;
+      background: var(--paper);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap {
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+    .wordmark { height: 18px; display: block; margin-bottom: 40px; }
+    h1 {
+      font-weight: 700;
+      font-size: 28px;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin: 0 0 8px;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 15px;
+      margin: 0 0 32px;
+      line-height: 1.45;
+    }
+    .meta {
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--windsor);
+      font-weight: 600;
+      margin-bottom: 20px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    button.slot {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 12px;
+      padding: 14px 12px;
+      font: inherit;
+      font-weight: 600;
+      font-size: 16px;
+      color: var(--ink);
+      cursor: pointer;
+      transition: border-color .15s, background .15s, color .15s;
+    }
+    button.slot:hover:not(:disabled) {
+      border-color: var(--purple);
+      color: var(--windsor);
+    }
+    button.slot.sel {
+      background: var(--windsor);
+      border-color: var(--windsor);
+      color: #fff;
+    }
+    button.slot:disabled {
+      opacity: .35;
+      cursor: not-allowed;
+      text-decoration: line-through;
+    }
+    form {
+      margin-top: 28px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+    form.open { display: flex; }
+    label { font-size: 12px; color: var(--muted); font-weight: 600; }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font: inherit;
+      font-size: 16px;
+      background: #fff;
+    }
+    input:focus { outline: 2px solid var(--purple); border-color: transparent; }
+    .go {
+      margin-top: 8px;
+      background: var(--purple);
+      color: #fff;
+      border: 0;
+      border-radius: 12px;
+      padding: 14px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .go:disabled { opacity: .5; cursor: wait; }
+    .msg { margin-top: 16px; font-size: 15px; min-height: 1.4em; }
+    .ok { color: #0a7a45; }
+    .err { color: #CB0015; }
+    footer { margin-top: 48px; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <img class="wordmark" src="/static/hybrid-wordmark.svg" alt="Hybrid" />
+    <h1>Выберите слот на завтра</h1>
+    <p class="sub">30 минут с 15:00 до 19:00, Москва. Занятое время недоступно.</p>
+    <div class="meta">
+      <span id="date">—</span>
+      <span>MSK</span>
+    </div>
+    <div class="grid" id="grid"></div>
+    <form id="form">
+      <div>
+        <label for="name">Имя</label>
+        <input id="name" name="name" required autocomplete="name" />
+      </div>
+      <div>
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required autocomplete="email" />
+      </div>
+      <button class="go" type="submit" id="go">Забронировать</button>
+    </form>
+    <p class="msg" id="msg"></p>
+    <footer>Hybrid · календарь Дмитрия Чеклова</footer>
+  </div>
+  <script>
+    let selected = null;
+    const grid = document.getElementById("grid");
+    const form = document.getElementById("form");
+    const msg = document.getElementById("msg");
+
+    async function load() {
+      const r = await fetch("/api/slots");
+      const d = await r.json();
+      document.getElementById("date").textContent = d.date_label;
+      grid.innerHTML = "";
+      d.slots.forEach((s) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "slot";
+        b.textContent = s.label + "–" + s.end_label;
+        b.disabled = s.taken;
+        b.dataset.start = s.start;
+        b.addEventListener("click", () => {
+          selected = s.start;
+          [...grid.querySelectorAll(".slot")].forEach((x) => x.classList.remove("sel"));
+          b.classList.add("sel");
+          form.classList.add("open");
+          msg.textContent = "";
+        });
+        grid.appendChild(b);
+      });
+    }
+
+    document.getElementById("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!selected) return;
+      const go = document.getElementById("go");
+      go.disabled = true;
+      msg.className = "msg";
+      msg.textContent = "";
+      try {
+        const r = await fetch("/api/book", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slot: selected,
+            name: document.getElementById("name").value,
+            email: document.getElementById("email").value,
+          }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.status === 409) {
+          msg.className = "msg err";
+          msg.textContent = "Этот слот уже занят.";
+          await load();
+          form.classList.remove("open");
+          selected = null;
+        } else if (!r.ok) {
+          msg.className = "msg err";
+          msg.textContent = "Не получилось забронировать.";
+        } else {
+          msg.className = "msg ok";
+          msg.textContent = "Слот ваш. Встреча в календаре.";
+          form.classList.remove("open");
+          await load();
+        }
+      } catch {
+        msg.className = "msg err";
+        msg.textContent = "Сеть недоступна.";
+      } finally {
+        go.disabled = false;
+      }
+    });
+    load();
+  </script>
+</body>
+</html>
