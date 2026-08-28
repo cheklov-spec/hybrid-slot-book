@@ -268,19 +268,21 @@ def api_slots(date: str | None = Query(None)):
     d = day.date()
     today = datetime.now(TZ).date()
     opened = day_is_open(day)
-    busy = sqlite_busy() | ical_busy(day) if opened else set()
     now = datetime.now(TZ)
     items = []
-    for s in slot_starts(day):
-        key = s.isoformat()
-        items.append(
-            {
-                "start": key,
-                "label": s.strftime("%H:%M"),
-                "end_label": (s + timedelta(minutes=SLOT_MIN)).strftime("%H:%M"),
-                "taken": (not opened) or key in busy or s < now,
-            }
-        )
+    show_grid = opened or d == today
+    if show_grid:
+        busy = sqlite_busy() | ical_busy(day) if opened else set()
+        for s in slot_starts(day):
+            key = s.isoformat()
+            items.append(
+                {
+                    "start": key,
+                    "label": s.strftime("%H:%M"),
+                    "end_label": (s + timedelta(minutes=SLOT_MIN)).strftime("%H:%M"),
+                    "taken": (not opened) or key in busy or s < now,
+                }
+            )
     return {
         "date": d.isoformat(),
         "date_label": date_label(d),
