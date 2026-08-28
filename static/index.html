@@ -46,14 +46,27 @@
     }
     .meta {
       display: flex;
-      gap: 16px;
+      align-items: center;
+      gap: 12px;
       font-size: 13px;
       color: var(--windsor);
       font-weight: 600;
       margin-bottom: 20px;
       letter-spacing: 0.02em;
-      text-transform: uppercase;
     }
+    .date-pick {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font: inherit;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--ink);
+      color-scheme: light;
+    }
+    .date-pick:focus { outline: 2px solid var(--purple); border-color: transparent; }
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -128,7 +141,7 @@
     <h1 id="title">Выберите слот</h1>
     <p class="sub">30 минут с 15:00 до 19:00, Москва. Занятое время недоступно.</p>
     <div class="meta">
-      <span id="date">—</span>
+      <input class="date-pick" type="date" id="datePick" />
       <span>MSK</span>
     </div>
     <div class="grid" id="grid"></div>
@@ -151,11 +164,15 @@
     const grid = document.getElementById("grid");
     const form = document.getElementById("form");
     const msg = document.getElementById("msg");
+    const datePick = document.getElementById("datePick");
 
-    async function load() {
-      const r = await fetch("/book/slots");
+    async function load(date) {
+      const q = date ? "?date=" + encodeURIComponent(date) : "";
+      const r = await fetch("/book/slots" + q);
       const d = await r.json();
-      document.getElementById("date").textContent = d.date_label;
+      datePick.min = d.min_date;
+      datePick.max = d.max_date;
+      datePick.value = d.date;
       document.getElementById("title").textContent = "Выберите слот на " + d.date_label;
       grid.innerHTML = "";
       d.slots.forEach((s) => {
@@ -197,7 +214,7 @@
         if (r.status === 409) {
           msg.className = "msg err";
           msg.textContent = "Этот слот уже занят.";
-          await load();
+          await load(datePick.value);
           form.classList.remove("open");
           selected = null;
         } else if (!r.ok) {
@@ -207,7 +224,7 @@
           msg.className = "msg ok";
           msg.textContent = "Слот ваш. Встреча в календаре.";
           form.classList.remove("open");
-          await load();
+          await load(datePick.value);
         }
       } catch {
         msg.className = "msg err";
@@ -215,6 +232,12 @@
       } finally {
         go.disabled = false;
       }
+    });
+    datePick.addEventListener("change", () => {
+      selected = null;
+      form.classList.remove("open");
+      msg.textContent = "";
+      load(datePick.value);
     });
     load();
   </script>
