@@ -11,7 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from icalendar import Calendar, Event, vCalAddress, vText
@@ -21,6 +21,7 @@ TZ = ZoneInfo("Europe/Moscow")
 DAY_START = time(15, 0)
 DAY_END = time(19, 0)
 SLOT_MIN = 30
+MAX_AHEAD_DAYS = 13
 OWNER_EMAIL = os.environ.get("YANDEX_EMAIL", "d.cheklov@hybrid.ru")
 OWNER_NAME = os.environ.get("OWNER_NAME", "Дмитрий Чеклов")
 CALDAV_URL = os.environ.get("YANDEX_CALDAV_URL", "https://caldav.yandex.ru/").rstrip("/") + "/"
@@ -61,14 +62,26 @@ if os.environ.get("RESET_BOOKINGS") == "1":
     _c.close()
 
 
-def tomorrow_local() -> datetime:
-    now = datetime.now(TZ)
-    d = (now + timedelta(days=1)).date()
+def today_local() -> datetime:
+    d = datetime.now(TZ).date()
     return datetime.combine(d, time(0, 0), tzinfo=TZ)
 
 
-def slot_starts() -> list[datetime]:
-    day = tomorrow_local()
+def parse_day(date_str: str | None) -> datetime:
+    if not date_str:
+        return today_local()
+    try:
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "bad date")
+    today = datetime.now(TZ).date()
+    if d < today or d > today + timedelta(days=MAX_AHEAD_DAYS):
+        raise HTTPException(400, "date out of range")
+    return datetime.combine(d, time(0, 0), tzinfo=TZ)
+
+
+def slot_starts(day: datetime | None = None) -> list[datetime]:
+    day = day or today_local()
     start = datetime.combine(day.date(), DAY_START, tzinfo=TZ)
     end = datetime.combine(day.date(), DAY_END, tzinfo=TZ)
     out = []
@@ -77,6 +90,12 @@ def slot_starts() -> list[datetime]:
         out.append(t)
         t += timedelta(minutes=SLOT_MIN)
     return out
+
+
+def date_label(d) -> str:
+    if d == datetime.now(TZ).date():
+        return "Сегодня"
+    return d.strftime("%d.%m.%Y")
 
 
 def parse_ics_busy(raw: bytes, window_start: datetime, window_end: datetime) -> set[str]:
@@ -108,17 +127,21 @@ def parse_ics_busy(raw: bytes, window_start: datetime, window_end: datetime) -> 
             e = s + timedelta(hours=1)
         if e <= window_start or s >= window_end:
             continue
-        for slot in slot_starts():
-            se = slot + timedelta(minutes=SLOT_MIN)
-            if slot < e and se > s:
-                busy.add(slot.isoformat())
+        t = window_start
+        while t < window_end:
+            se = t + timedelta(minutes=SLOT_MIN)
+            if t < e and se > s:
+                busy.add(t.isoformat())
+            t += timedelta(minutes=SLOT_MIN)
     return busy
 
 
-def ical_busy() -> set[str]:
+def ical_busy(day: datetime | None = None) -> set[str]:
     if not ICAL_URL:
         return set()
-    slots = slot_starts()
+    slots = slot_starts(day)
+    if not slots:
+        return set()
     ws, we = slots[0], slots[-1] + timedelta(minutes=SLOT_MIN)
     try:
         r = httpx.get(ICAL_URL, timeout=20.0, follow_redirects=True)
@@ -200,23 +223,28 @@ def health():
 
 
 @app.get("/book/slots")
-def api_slots():
-    busy = sqlite_busy() | ical_busy()
+def api_slots(date: str | None = Query(None)):
+    day = parse_day(date)
+    busy = sqlite_busy() | ical_busy(day)
+    now = datetime.now(TZ)
     items = []
-    for s in slot_starts():
+    for s in slot_starts(day):
         key = s.isoformat()
         items.append(
             {
                 "start": key,
                 "label": s.strftime("%H:%M"),
                 "end_label": (s + timedelta(minutes=SLOT_MIN)).strftime("%H:%M"),
-                "taken": key in busy,
+                "taken": key in busy or s < now,
             }
         )
-    day = tomorrow_local().date()
+    d = day.date()
+    today = datetime.now(TZ).date()
     return {
-        "date": day.isoformat(),
-        "date_label": day.strftime("%d.%m.%Y"),
+        "date": d.isoformat(),
+        "date_label": date_label(d),
+        "min_date": today.isoformat(),
+        "max_date": (today + timedelta(days=MAX_AHEAD_DAYS)).isoformat(),
         "tz": "Europe/Moscow",
         "owner": OWNER_NAME,
         "slots": items,
@@ -233,12 +261,15 @@ def api_book(body: BookIn):
             start = start.astimezone(TZ)
     except ValueError:
         raise HTTPException(400, "bad slot")
-    allowed = {s.isoformat(): s for s in slot_starts()}
+    day = parse_day(start.date().isoformat())
+    allowed = {s.isoformat(): s for s in slot_starts(day)}
     if body.slot not in allowed and start.isoformat() not in allowed:
         raise HTTPException(400, "slot not offered")
     start = allowed.get(body.slot) or allowed[start.isoformat()]
     key = start.isoformat()
-    if key in ical_busy() or key in sqlite_busy():
+    if start < datetime.now(TZ):
+        raise HTTPException(400, "slot in the past")
+    if key in ical_busy(day) or key in sqlite_busy():
         raise HTTPException(409, "slot taken")
     uid = str(uuid.uuid4())
     ics = make_ics(uid, start, body.name.strip(), str(body.email))
