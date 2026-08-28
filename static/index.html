@@ -129,6 +129,12 @@
       cursor: pointer;
     }
     .go:disabled { opacity: .5; cursor: wait; }
+    .empty {
+      grid-column: 1 / -1;
+      color: var(--muted);
+      font-size: 15px;
+      padding: 18px 4px;
+    }
     .msg { margin-top: 16px; font-size: 15px; min-height: 1.4em; }
     .ok { color: #0a7a45; }
     .err { color: #CB0015; }
@@ -168,14 +174,35 @@
 
     async function load(date) {
       const q = date ? "?date=" + encodeURIComponent(date) : "";
-      const r = await fetch("/book/slots" + q);
-      const d = await r.json();
-      datePick.min = d.min_date;
-      datePick.max = d.max_date;
-      datePick.value = d.date;
-      document.getElementById("title").textContent = "Выберите слот на " + d.date_label;
+      let d = {};
+      try {
+        const r = await fetch("/book/slots" + q);
+        d = await r.json().catch(() => ({}));
+      } catch {
+        d = {};
+      }
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" });
+      const max = d.max_date || today;
+      const picked = date || d.date || today;
+      datePick.min = d.min_date || today;
+      datePick.max = max;
+      datePick.value = picked;
+      const label = d.date_label || picked;
+      document.getElementById("title").textContent = "Выберите слот на " + label;
+      const urlDate = "?date=" + encodeURIComponent(picked);
+      if (location.search !== urlDate) {
+        history.replaceState(null, "", urlDate);
+      }
       grid.innerHTML = "";
-      d.slots.forEach((s) => {
+      const slots = Array.isArray(d.slots) ? d.slots : [];
+      if (!slots.length) {
+        const p = document.createElement("p");
+        p.className = "empty";
+        p.textContent = "На эту дату слотов нет.";
+        grid.appendChild(p);
+        return;
+      }
+      slots.forEach((s) => {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "slot";
@@ -239,7 +266,8 @@
       msg.textContent = "";
       load(datePick.value);
     });
-    load();
+    const startDate = new URLSearchParams(location.search).get("date");
+    load(startDate || undefined);
   </script>
 </body>
 </html>

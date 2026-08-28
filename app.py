@@ -2,8 +2,8 @@
 """Hybrid meeting slot booker → Yandex Calendar (CalDAV + optional iCal busy)."""
 from __future__ import annotations
 
+import json
 import os
-import re
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, time, timezone
@@ -67,17 +67,57 @@ def today_local() -> datetime:
     return datetime.combine(d, time(0, 0), tzinfo=TZ)
 
 
-def parse_day(date_str: str | None) -> datetime:
-    if not date_str:
-        return today_local()
+def _load_dates_file(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
     try:
-        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+        data = json.loads(path.read_text())
+    except Exception:
+        return set()
+    if not isinstance(data, list):
+        return set()
+    out = set()
+    for x in data:
+        s = str(x).strip()
+        try:
+            datetime.strptime(s, "%Y-%m-%d")
+            out.add(s)
+        except ValueError:
+            continue
+    return out
+
+
+def open_dates() -> set[str]:
+    dates: set[str] = set()
+    env = os.environ.get("OPEN_DATES", "")
+    for part in env.split(","):
+        s = part.strip()
+        try:
+            datetime.strptime(s, "%Y-%m-%d")
+            dates.add(s)
+        except ValueError:
+            continue
+    dates |= _load_dates_file(Path(__file__).parent / "open_dates.json")
+    dates |= _load_dates_file(DATA_DIR / "open_dates.json")
+    return dates
+
+
+def parse_day(date_str: str | None) -> datetime:
+    today = today_local()
+    if not date_str:
+        return today
+    try:
+        d = datetime.strptime(date_str.strip(), "%Y-%m-%d").date()
     except ValueError:
-        raise HTTPException(400, "bad date")
-    today = datetime.now(TZ).date()
-    if d < today or d > today + timedelta(days=MAX_AHEAD_DAYS):
-        raise HTTPException(400, "date out of range")
+        return today
     return datetime.combine(d, time(0, 0), tzinfo=TZ)
+
+
+def day_is_open(day: datetime) -> bool:
+    d = day.date()
+    if d < datetime.now(TZ).date():
+        return False
+    return d.isoformat() in open_dates()
 
 
 def slot_starts(day: datetime | None = None) -> list[datetime]:
@@ -225,24 +265,26 @@ def health():
 @app.get("/book/slots")
 def api_slots(date: str | None = Query(None)):
     day = parse_day(date)
-    busy = sqlite_busy() | ical_busy(day)
-    now = datetime.now(TZ)
-    items = []
-    for s in slot_starts(day):
-        key = s.isoformat()
-        items.append(
-            {
-                "start": key,
-                "label": s.strftime("%H:%M"),
-                "end_label": (s + timedelta(minutes=SLOT_MIN)).strftime("%H:%M"),
-                "taken": key in busy or s < now,
-            }
-        )
     d = day.date()
     today = datetime.now(TZ).date()
+    items = []
+    if day_is_open(day):
+        busy = sqlite_busy() | ical_busy(day)
+        now = datetime.now(TZ)
+        for s in slot_starts(day):
+            key = s.isoformat()
+            items.append(
+                {
+                    "start": key,
+                    "label": s.strftime("%H:%M"),
+                    "end_label": (s + timedelta(minutes=SLOT_MIN)).strftime("%H:%M"),
+                    "taken": key in busy or s < now,
+                }
+            )
     return {
         "date": d.isoformat(),
         "date_label": date_label(d),
+        "open": bool(items),
         "min_date": today.isoformat(),
         "max_date": (today + timedelta(days=MAX_AHEAD_DAYS)).isoformat(),
         "tz": "Europe/Moscow",
@@ -262,6 +304,8 @@ def api_book(body: BookIn):
     except ValueError:
         raise HTTPException(400, "bad slot")
     day = parse_day(start.date().isoformat())
+    if not day_is_open(day):
+        raise HTTPException(400, "slot not offered")
     allowed = {s.isoformat(): s for s in slot_starts(day)}
     if body.slot not in allowed and start.isoformat() not in allowed:
         raise HTTPException(400, "slot not offered")
