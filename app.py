@@ -267,24 +267,24 @@ def api_slots(date: str | None = Query(None)):
     day = parse_day(date)
     d = day.date()
     today = datetime.now(TZ).date()
+    opened = day_is_open(day)
+    busy = sqlite_busy() | ical_busy(day) if opened else set()
+    now = datetime.now(TZ)
     items = []
-    if day_is_open(day):
-        busy = sqlite_busy() | ical_busy(day)
-        now = datetime.now(TZ)
-        for s in slot_starts(day):
-            key = s.isoformat()
-            items.append(
-                {
-                    "start": key,
-                    "label": s.strftime("%H:%M"),
-                    "end_label": (s + timedelta(minutes=SLOT_MIN)).strftime("%H:%M"),
-                    "taken": key in busy or s < now,
-                }
-            )
+    for s in slot_starts(day):
+        key = s.isoformat()
+        items.append(
+            {
+                "start": key,
+                "label": s.strftime("%H:%M"),
+                "end_label": (s + timedelta(minutes=SLOT_MIN)).strftime("%H:%M"),
+                "taken": (not opened) or key in busy or s < now,
+            }
+        )
     return {
         "date": d.isoformat(),
         "date_label": date_label(d),
-        "open": bool(items),
+        "open": opened,
         "min_date": today.isoformat(),
         "max_date": (today + timedelta(days=MAX_AHEAD_DAYS)).isoformat(),
         "tz": "Europe/Moscow",
